@@ -724,6 +724,8 @@ const defaults = () => ({
   meta: { createdAt: Date.now() },
 });
 const KEY = 'coffer.data.v1', PKEY = 'coffer.prefs.v1';
+/* Built-in team sync: every computer that opens the tracker joins the same shared data automatically */
+const TEAM_SYNC_URL = 'https://script.google.com/macros/s/AKfycbwgMi_0gz50fLBu0pJEAIDTz0mOCvDbN21thhVD5vJBctt2EpLy2A45-QVUgumJJ85L/exec';
 const prefDefaults = () => ({ theme: 'ekey', mode: 'light', user: '', page: 'dashboard', month: curMonth(), notify: false, liveToasts: true,
   sync: { url: '', key: '', auto: true, last: 0 }, invFilter: 'all', invMonth: 'all', invSystem: 'all', invSort: { k: 'inputDate', d: -1 }, calMonth: curMonth(), notified: {}, seenAlerts: [] });
 
@@ -731,6 +733,8 @@ let S, P;
 function load() {
   try { P = Object.assign(prefDefaults(), JSON.parse(localStorage.getItem(PKEY)) || {}); } catch (e) { P = prefDefaults(); }
   P.sync = Object.assign(prefDefaults().sync, P.sync || {});
+  if (!P.sync.url) { P.sync.url = TEAM_SYNC_URL; P.sync.key = ''; }
+  P.sync.auto = true;
   try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
   if (!S) S = defaults();   /* starts at zero — no sample data, ever */
   const d = defaults();
@@ -759,6 +763,7 @@ function log(text, kind = 'info', invoiceId) {
 
 /* ---------- domain ---------- */
 const invById = id => S.invoices.find(i => i.id === id);
+const orphan = r => !!r.invoiceId && !(invById(r.invoiceId) && !invById(r.invoiceId)._del);
 const linkedCost = inv => sum(live(S.expenses).filter(e => e.invoiceId === inv.id), e => num(e.amount));
 /* payments ledger: partial payments, short-pays */
 const pays = inv => (inv.payments || []).filter(p => !p._del);
@@ -870,7 +875,7 @@ function computeAlerts() {
   });
   const noCost = live(S.invoices).filter(i => !num(i.vendorCost) && i.approval !== 'rejected');
   if (noCost.length) out.push({ key: `vc:${noCost.length}`, lvl: 'info', sym: '$', title: `${noCost.length} bill${noCost.length > 1 ? 's need' : ' needs'} a vendor cost`, body: 'Type what was paid to the vendor — profit updates instantly', acts: ['fillVc'] });
-  live(S.reminders).filter(r => !r.done && r.date <= t && !(r.auto && (r.kind === 'approval' || r.kind === 'vendor' || (r.kind === 'payment' && r.date < t)))).forEach(r => {
+  live(S.reminders).filter(r => !r.done && !orphan(r) && r.date <= t && !(r.auto && (r.kind === 'approval' || r.kind === 'vendor' || (r.kind === 'payment' && r.date < t)))).forEach(r => {
     const d = daysBetween(r.date, t);
     out.push({ key: `rem:${r.id}`, lvl: d > 0 ? 'bad' : 'warn', sym: '☾', title: r.title, body: `${d > 0 ? `${d}d overdue` : 'Due today'}${r.time ? ' · ' + r.time : ''}${r.note ? ' · ' + r.note : ''}`, rem: r, inv: r.invoiceId ? invById(r.invoiceId) : null, acts: ['done', 'snoozeRem'] });
   });
@@ -893,7 +898,7 @@ function watchAlerts(first) {
 function tickReminders() {
   const now = new Date(), t = iso(now), hm = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
   live(S.reminders).forEach(r => {
-    if (r.done || P.notified[r.id]) return;
+    if (r.done || orphan(r) || P.notified[r.id]) return;
     if (r.date < t || (r.date === t && (r.time || '09:00') <= hm)) {
       P.notified[r.id] = Date.now(); savePrefs();
       const due = parse(r.date); const [hh, mm] = (r.time || '09:00').split(':').map(Number); due.setHours(hh, mm);
@@ -913,7 +918,7 @@ const icsEsc = s => String(s || '').replace(/\\/g, '\\\\').replace(/\n/g, '\\n')
 const stamp = (date, time) => date.replace(/-/g, '') + 'T' + (time || '09:00').replace(':', '') + '00';
 const endStamp = (date, time) => { const [h, m] = (time || '09:00').split(':').map(Number); const d = parse(date); d.setHours(h, m + 30); return iso(d).replace(/-/g, '') + 'T' + pad(d.getHours()) + pad(d.getMinutes()) + '00'; };
 function eventsForExport() {
-  const t0 = addDays(today(), -1); const ev = live(S.reminders).filter(r => !r.done && r.date >= t0).map(r => ({ id: r.id, date: r.date, time: r.time, title: r.title, desc: r.note || '', repeat: r.repeat || '' }));
+  const t0 = addDays(today(), -1); const ev = live(S.reminders).filter(r => !r.done && !orphan(r) && r.date >= t0).map(r => ({ id: r.id, date: r.date, time: r.time, title: r.title, desc: r.note || '', repeat: r.repeat || '' }));
   live(S.invoices).filter(i => ['approved', 'partial'].includes(stage(i)) && expected(i) >= t0 && !live(S.reminders).some(r => r.invoiceId === i.id && r.kind === 'payment' && !r.done))
     .forEach(i => ev.push({ id: 'exp-' + i.id, date: expected(i), time: '09:00', title: `Payment expected · ${i.client}`, desc: `${i.no} · ${money(num(i.amount))}` }));
   return ev;
@@ -1008,7 +1013,8 @@ function purgeSample() {
   const now = Date.now(), kill = o => { o._del = true; o.updatedAt = now; n++; }; let n = 0;
   const dead = new Set();
   S.invoices.forEach(i => { if (SAMPLE_CLIENTS.has(i.client)) { dead.add(i.id); if (!i._del) kill(i); } });
-  S.reminders.forEach(r => { if (!r._del && (dead.has(r.invoiceId) || SAMPLE_REMINDERS.has(r.title))) kill(r); });
+  S.reminders.forEach(r => { if (!r._del && (dead.has(r.invoiceId) || SAMPLE_REMINDERS.has(r.title) || orphan(r))) kill(r); });
+  S.activity.forEach(a => { if (!a._del && a.invoiceId && !(invById(a.invoiceId) && !invById(a.invoiceId)._del) && /^(logged|marked|confirmed|recorded|set |accepted|paid |uploaded)/.test(a.text || '')) kill(a); });
   S.activity.forEach(a => { if (!a._del && (dead.has(a.invoiceId) || [...SAMPLE_CLIENTS].some(c => (a.text || '').includes(c)) || /\bINV-1\d{3}\b/.test(a.text || ''))) kill(a); });
   /* expenses: exact sample payee + category, untouched, and created before this fix shipped */
   S.expenses.forEach(e => { if (!e._del && SAMPLE_EXPENSES[e.payee] === e.category && !e.invoiceId && !e.note && !e.receiptUrl && (e.updatedAt || 0) < SAMPLE_CUTOFF) kill(e); });
@@ -1091,7 +1097,7 @@ function countUp() {
 
 function renderSide() {
   const al = computeAlerts(), pend = live(S.invoices).filter(i => stage(i) === 'pending').length;
-  const counts = { invoices: pend, calendar: live(S.reminders).filter(r => !r.done && r.date === today()).length };
+  const counts = { invoices: pend, calendar: live(S.reminders).filter(r => !orphan(r)).filter(r => !r.done && r.date === today()).length };
   const months = [...new Set([curMonth(), ...live(S.invoices).map(i => mKey(i.inputDate))])].filter(Boolean).sort().reverse().slice(0, 8);
   $('#side').innerHTML = `
     <div class="brand"><img src="data:image/png;base64,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" alt="Ekey Realty"><small>Invoice &amp; expense tracker</small></div>
@@ -1196,7 +1202,7 @@ function alertCard(a, compact) {
 }
 function miniCal(k) {
   const first = parse(k + '-01'), lead = first.getDay(), dim = daysInMonth(k), t = today();
-  const has = new Set(live(S.invoices).map(i => i.inputDate)), pay = new Set(live(S.invoices).filter(i => i.paid).map(i => i.paidDate)), rem = new Set(live(S.reminders).filter(r => !r.done).map(r => r.date));
+  const has = new Set(live(S.invoices).map(i => i.inputDate)), pay = new Set(live(S.invoices).filter(i => i.paid).map(i => i.paidDate)), rem = new Set(live(S.reminders).filter(r => !orphan(r)).filter(r => !r.done).map(r => r.date));
   let h = 'SMTWTFS'.split('').map(d => `<span class="dw">${d}</span>`).join('');
   for (let i = 0; i < lead; i++) h += '<button class="out" tabindex="-1"></button>';
   for (let d = 1; d <= dim; d++) { const ds = `${k}-${pad(d)}`; const c = [rem.has(ds) ? 'rem' : pay.has(ds) ? 'pay' : has.has(ds) ? 'has' : '', ds === t ? 'today' : ''].join(' ');
@@ -1214,8 +1220,8 @@ function pgDashboard() {
   const isCur = k === curMonth(), dayPct = isCur ? +today().slice(8) / daysInMonth(k) * 100 : 100;
   const paidAll = allLive.filter(i => i.paid && i.paidDate), avgDays = paidAll.length ? Math.round(sum(paidAll, i => daysBetween(i.inputDate, i.paidDate)) / paidAll.length) : 0;
   let streak = 0; { const days = new Set([...allLive.map(i => i.inputDate), ...live(S.expenses).map(e => e.date)]); let d = today(); if (!days.has(d)) d = addDays(d, -1); while (days.has(d) || [0, 6].includes(parse(d).getDay())) { if (days.has(d)) streak++; d = addDays(d, -1); if (streak > 365) break; } }
-  const upcoming = [...live(S.reminders).filter(r => !r.done && r.date >= today()).map(r => ({ date: r.date, title: r.title, sub: (r.time || '') + (r.note ? ' · ' + r.note : ''), rem: r })),
-    ...openApproved.filter(i => expected(i) >= today() && !live(S.reminders).some(r => r.invoiceId === i.id && r.kind === 'payment' && !r.done)).map(i => ({ date: expected(i), title: `Payment expected · ${i.client}`, sub: `${i.no} · ${money(num(i.amount))}`, inv: i }))]
+  const upcoming = [...live(S.reminders).filter(r => !orphan(r)).filter(r => !r.done && r.date >= today()).map(r => ({ date: r.date, title: r.title, sub: (r.time || '') + (r.note ? ' · ' + r.note : ''), rem: r })),
+    ...openApproved.filter(i => expected(i) >= today() && !live(S.reminders).filter(r => !orphan(r)).some(r => r.invoiceId === i.id && r.kind === 'payment' && !r.done)).map(i => ({ date: expected(i), title: `Payment expected · ${i.client}`, sub: `${i.no} · ${money(num(i.amount))}`, inv: i }))]
     .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 7);
   const bySys = {}; st.inv.forEach(i => bySys[i.system || 'Other'] = (bySys[i.system || 'Other'] || 0) + num(i.amount));
   const sysSegs = Object.entries(bySys).sort((a, b) => b[1] - a[1]).map(([l, v], i) => ({ l, v, c: PALETTE[i % PALETTE.length] }));
@@ -1524,7 +1530,7 @@ function pgReports() {
 
 /* =================== CALENDAR =================== */
 function dayEvents(ds) {
-  const out = [], t = today(), inv = live(S.invoices), rem = live(S.reminders);
+  const out = [], t = today(), inv = live(S.invoices), rem = live(S.reminders).filter(r => !orphan(r));
   inv.filter(i => i.inputDate === ds).forEach(i => out.push({ cls: 'logged', label: `${i.client}`, tip: `Logged ${i.no} · ${money(num(i.amount))}`, inv: i }));
   inv.filter(i => i.paid && i.paidDate === ds).forEach(i => out.push({ cls: 'paid', label: `+${compact(profit(i))} ${i.client}`, tip: `Paid · ${i.no} · ${money(num(i.amount))}`, inv: i }));
   inv.filter(i => ['approved', 'partial'].includes(stage(i)) && expected(i) === ds && !rem.some(r => r.invoiceId === i.id && r.kind === 'payment' && !r.done))
@@ -1542,7 +1548,7 @@ function pgCalendar() {
     cells += `<button class="day ${out ? 'out' : ''} ${ds === t ? 'today' : ''} ${ev.length ? 'has-ev' : ''}" data-act="day" data-date="${ds}"><span class="dn">${d.getDate()}</span>
       ${ev.slice(0, 3).map(e => `<span class="ev ${e.cls}" data-tip="${esc(e.tip)}">${esc(e.label)}</span>`).join('')}${ev.length > 3 ? `<span class="ev more">+${ev.length - 3} more</span>` : ''}</button>`;
   }
-  const ups = live(S.reminders).filter(r => !r.done).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 10);
+  const ups = live(S.reminders).filter(r => !orphan(r)).filter(r => !r.done).sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time)).slice(0, 10);
   return `
   <div class="page-head"><div class="grow"><span class="kicker">Calendar</span><h1 class="h1">${MONTHS[+k.slice(5) - 1]} <em>${k.slice(0, 4)}</em></h1>
     <p class="sub">Bills logged, payments due and every reminder — on one page. Send any of it to Google Calendar or Outlook in one click.</p></div>
@@ -1551,7 +1557,7 @@ function pgCalendar() {
   <div class="legend" style="margin-bottom:12px"><span><i style="background:var(--t1i)"></i>Invoice logged</span><span><i style="background:var(--warn)"></i>Payment expected</span><span><i style="background:var(--good)"></i>Paid</span><span><i style="background:var(--t3i)"></i>Reminder</span><span><i style="background:var(--bad)"></i>Overdue</span></div>
   <div class="card" style="padding:16px"><div class="cal">${'Sun Mon Tue Wed Thu Fri Sat'.split(' ').map(d => `<div class="dow">${d}</div>`).join('')}${cells}</div></div>
   <div class="grid g-2 mt">
-    <div class="card"><div class="card-head"><h3>Open reminders</h3><span class="sp"></span><span class="faint mono" style="font-size:11px">${live(S.reminders).filter(r => !r.done).length} open</span></div>
+    <div class="card"><div class="card-head"><h3>Open reminders</h3><span class="sp"></span><span class="faint mono" style="font-size:11px">${live(S.reminders).filter(r => !orphan(r)).filter(r => !r.done).length} open</span></div>
       ${ups.length ? ups.map(r => remRow(r)).join('') : emptyState('No reminders', 'Automations add follow-ups as bills come in.')}</div>
     <div class="card"><div class="tape" style="top:-12px;right:40px;transform:rotate(4deg);--tc:var(--t2i)"></div>
       <div class="card-head"><h3>Suggested rhythms <span class="hint">one tap to add</span></h3></div>
@@ -1621,8 +1627,8 @@ function pgSettings() {
         <label class="field"><span>Shared key</span><input data-pref="sync.key" value="${esc(P.sync.key)}" placeholder="same as SECRET in the script" type="password"></label>
         <div class="field"><span>Auto-sync</span><div class="row">${sw(P.sync.auto, 'prefSw', 'data-p="sync.auto"')}<span class="faint" style="font-size:12px">on every change + every 90s</span></div></div></div>
       ${P.sync.lastError ? `<div class="alert-item" style="margin-top:12px"><div class="ai-ic bad">!</div><div><div class="t">Last sync problem</div><div class="b">${esc(P.sync.lastError)}</div></div></div>` : ''}
-      <div class="row mt"><button class="btn primary" data-act="syncNow">${ic('sync')}Sync now</button>${P.sync.url ? `<button class="btn warm" data-act="copyInvite">${ic('link')}Copy team invite link</button>` : ''}<button class="btn" data-act="scriptModal">${ic('key')}Setup script</button></div>
-      ${P.sync.url ? '<p class="faint" style="font-size:12px;margin:10px 0 0">Send the invite link privately. Opening it connects that person automatically — nothing to paste.</p>' : ''}
+      <div class="row mt"><button class="btn primary" data-act="syncNow">${ic('sync')}Sync now</button>${P.sync.url ? `` : ''}<button class="btn" data-act="scriptModal">${ic('key')}Setup script</button></div>
+      <p class="faint" style="font-size:12px;margin:10px 0 0">Sync is built in — every computer that opens the tracker link joins automatically.</p>
     </div>
     <div class="card"><div class="card-head"><h3>Your data</h3></div>
       <div class="set-row"><div class="txt"><b>Backup</b><small>Download everything as a JSON file</small></div><button class="btn sm" data-act="exportJSON">${ic('down')}Export</button></div>
