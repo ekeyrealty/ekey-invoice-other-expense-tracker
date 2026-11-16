@@ -535,6 +535,15 @@ pre.code{background:var(--side);color:var(--side-ink);padding:16px;border-radius
 .pgrow .rv{text-align:right;font-size:12.5px}
 .pgrow .rv b{display:block;font-variant-numeric:tabular-nums}
 
+/* inline vendor cost — type straight into the table */
+.vc{display:inline-flex;align-items:center;gap:2px;padding:6px 10px;border-radius:11px;background:var(--sunk);box-shadow:var(--in);cursor:text;transition:box-shadow .2s,background .2s;min-width:104px;justify-content:flex-end}
+.vc b{color:var(--ink3);font-weight:600;font-size:12px}
+.vc-in{width:76px;border:0;outline:none;background:transparent;text-align:right;font:600 13px var(--f-ui);font-variant-numeric:tabular-nums;color:var(--ink)}
+.vc-in::placeholder{color:var(--warn);font-weight:700;opacity:.9}
+.vc.empty{background:color-mix(in srgb,var(--warn) 12%,var(--sunk));box-shadow:var(--in),0 0 0 1.5px color-mix(in srgb,var(--warn) 35%,transparent)}
+.vc:focus-within{box-shadow:var(--in),0 0 0 3px color-mix(in srgb,var(--acc2) 35%,transparent);background:var(--card-hi)}
+.receipt .vc{padding:4px 8px;min-width:96px}
+
 /* aging */
 .agebar{display:flex;gap:4px;height:24px;border-radius:99px;padding:4px;background:var(--sunk);box-shadow:var(--in)}
 .agebar i{min-width:8px;border-radius:99px;background:linear-gradient(180deg,color-mix(in srgb,var(--bc),#fff 32%),var(--bc) 55%,color-mix(in srgb,var(--bc),#000 12%));box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 3px 8px -3px var(--bc);transition:flex 1s var(--ease)}
@@ -683,7 +692,17 @@ const ic = (n, cls = '') => `<svg class="svg-ic ${cls}" viewBox="0 0 24 24" aria
 
 /* ---------- defaults ---------- */
 const SYSTEMS = ['LPS Billing', 'PennyMac Invoice System', 'Pruvan', 'Yardi', 'Equator', 'RESNET', 'Pyramid', 'VRM', 'Exceleras', 'Other'];
-const SERVICES = ['Trash-out', 'Lawn & yard maintenance', 'Lock change / rekey', 'Winterization', 'Debris removal', 'Interior cleaning', 'Roof tarp & repair', 'Property inspection', 'Pool securing', 'Repairs / handyman'];
+/* Service categories exactly as in LPS (Category → Sub-Category) */
+const CATEGORIES = {
+  'Unassigned': [], 'Attorney': [], 'Cash for Keys': [], 'Cleaning': [], 'Eviction': [], 'HOA': [],
+  'Inspections': ['HVAC Inspection', 'Mold Assessment', 'Pest Control Inspection', 'Plumbing Inspection', 'Roof Inspection', 'Routine Inspections', 'Septic Inspection', 'Special Inspections', 'Structural or Foundation Inspection'],
+  'Other': [], 'Pool': [],
+  'Property Preservation': ['DeWinterizing', 'Forced Place Insurance', 'Pest Treatment', 'Property Preservation Work', 'Snow Services', 'Winterizing'],
+  'Recording/Registration': [], 'Repairs': [], 'Securing': [], 'Taxes/Liens/Violations': [], 'Title': [], 'Trash Removal': [], 'Utilities': [], 'Valuation': [], 'Yard Care': [],
+};
+const serviceLabel = (cat, sub) => sub ? `${cat} · ${sub}` : (cat || 'Unassigned');
+/* Servicers (clients) exactly as in the LPS servicer list */
+const SERVICERS = ['CLS Comm', 'Fay Servicing LLC', 'M&T Bank', 'Nationstar Mortgage', 'NRT REO Experts', 'Phoenix Asset Management', 'Select Portfolio Servicing - REO Outsourcer', 'ServiceLink Asset Management Solutions, LLC', 'Shellpoint Mortgage Servicing', 'Vendor Resource Management - GOV'];
 const CATS = ['Software & subscriptions', 'Fuel & mileage', 'Supplies', 'Fees & bank charges', 'Marketing', 'Office', 'Insurance', 'Other'];
 const THEMES = {
   ekey:   { name: 'Ekey Signature', note: 'brand orange · charcoal · steel', sw: ['#1E1B1C', '#F05423', '#F5F2EE', '#9A6B3C', '#4F6B55', '#4E6175'] },
@@ -697,26 +716,29 @@ const defaults = () => ({
   invoices: [], expenses: [], reminders: [], activity: [],
   dismissed: {},
   settings: {
-    currency: 'USD', team: ['Eric', 'Yvonne'], systems: SYSTEMS.slice(), services: SERVICES.slice(), cats: CATS.slice(),
+    currency: 'USD', team: ['Eric', 'Yvonne'], systems: SYSTEMS.slice(), clients: SERVICERS.slice(), cats: CATS.slice(),
     goalProfit: 6000, goalRevenue: 18000, driveFolder: '',
     rules: { approvalDays: 5, paymentDays: 14, commDays: 7, lowMargin: 20, vendorDays: 30, autoFollowup: true, missingCopy: true, negMargin: true, vendorAlerts: true, shortAlerts: true },
     updatedAt: 0,
   },
-  meta: { demo: false, createdAt: Date.now() },
+  meta: { createdAt: Date.now() },
 });
 const KEY = 'coffer.data.v1', PKEY = 'coffer.prefs.v1';
-const prefDefaults = () => ({ theme: 'ekey', mode: 'light', user: 'Yvonne', page: 'dashboard', month: curMonth(), notify: false, liveToasts: true,
+const prefDefaults = () => ({ theme: 'ekey', mode: 'light', user: '', page: 'dashboard', month: curMonth(), notify: false, liveToasts: true,
   sync: { url: '', key: '', auto: true, last: 0 }, invFilter: 'all', invMonth: 'all', invSystem: 'all', invSort: { k: 'inputDate', d: -1 }, calMonth: curMonth(), notified: {}, seenAlerts: [] });
 
 let S, P;
 function load() {
-  try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
   try { P = Object.assign(prefDefaults(), JSON.parse(localStorage.getItem(PKEY)) || {}); } catch (e) { P = prefDefaults(); }
-  if (!S) { S = defaults(); seedDemo(); }
+  P.sync = Object.assign(prefDefaults().sync, P.sync || {});
+  try { S = JSON.parse(localStorage.getItem(KEY)); } catch (e) { S = null; }
+  if (!S) S = defaults();   /* starts at zero — no sample data, ever */
   const d = defaults();
   S.settings = Object.assign(d.settings, S.settings || {}); S.settings.rules = Object.assign(d.settings.rules, S.settings.rules || {});
   ['invoices', 'expenses', 'reminders', 'activity'].forEach(k => S[k] = S[k] || []);
-  S.dismissed = S.dismissed || {}; S.meta = S.meta || d.meta;
+  S.dismissed = S.dismissed || {}; S.meta = S.meta || d.meta; delete S.meta.demo;
+  if (!Array.isArray(S.settings.clients) || !S.settings.clients.length) S.settings.clients = SERVICERS.slice();
+  purgeSample();
 }
 function savePrefs() { try { localStorage.setItem(PKEY, JSON.stringify(P)); } catch (e) {} }
 let _saveT;
@@ -846,6 +868,8 @@ function computeAlerts() {
     }
     if (R.shortAlerts && shortPay(inv) > 0 && !inv.shortAck) out.push({ key: `short:${inv.id}`, lvl: 'warn', sym: '◒', title: `Short-paid ${money(shortPay(inv))}`, body: `${base} · received ${money(received(inv))} — dispute or accept`, inv, acts: ['ackShort', 'comm'] });
   });
+  const noCost = live(S.invoices).filter(i => !num(i.vendorCost) && i.approval !== 'rejected');
+  if (noCost.length) out.push({ key: `vc:${noCost.length}`, lvl: 'info', sym: '$', title: `${noCost.length} bill${noCost.length > 1 ? 's need' : ' needs'} a vendor cost`, body: 'Type what was paid to the vendor — profit updates instantly', acts: ['fillVc'] });
   live(S.reminders).filter(r => !r.done && r.date <= t && !(r.auto && (r.kind === 'approval' || r.kind === 'vendor' || (r.kind === 'payment' && r.date < t)))).forEach(r => {
     const d = daysBetween(r.date, t);
     out.push({ key: `rem:${r.id}`, lvl: d > 0 ? 'bad' : 'warn', sym: '☾', title: r.title, body: `${d > 0 ? `${d}d overdue` : 'Due today'}${r.time ? ' · ' + r.time : ''}${r.note ? ' · ' + r.note : ''}`, rem: r, inv: r.invoiceId ? invById(r.invoiceId) : null, acts: ['done', 'snoozeRem'] });
@@ -935,26 +959,31 @@ function mergeRemote(R) {
   S.invoices = mergeList(S.invoices, R.invoices); S.expenses = mergeList(S.expenses, R.expenses); S.reminders = mergeList(S.reminders, R.reminders);
   S.activity = mergeList(S.activity, R.activity).sort((a, b) => b.at - a.at).slice(0, 300);
   if (R.settings && (R.settings.updatedAt || 0) > (S.settings.updatedAt || 0)) S.settings = Object.assign(S.settings, R.settings);
-  if (R.meta && R.meta.demo === false && S.meta.demo && (R.invoices || []).length) { /* remote holds real data — keep it */ }
+  purgeSample();
   return before !== JSON.stringify([S.invoices, S.expenses, S.reminders, S.settings]);
 }
+const withTimeout = (p, ms, label) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timed out — Google took too long, will retry')), ms))]);
 async function syncNow(manual) {
-  if (!P.sync.url || _syncing) return;
+  if (!P.sync.url) return;
+  if (_syncing) { if (manual) toast({ kind: 'info', sym: '⟳', title: 'Already syncing…', ms: 2000 }); return; }
   _syncing = true; setSaved('syncing');
   const u = P.sync.url.trim(), k = encodeURIComponent(P.sync.key || '');
   try {
-    const r = await fetch(`${u}${u.includes('?') ? '&' : '?'}key=${k}&t=${Date.now()}`, { method: 'GET', redirect: 'follow' });
-    const remote = await r.json();
+    const r = await withTimeout(fetch(`${u}${u.includes('?') ? '&' : '?'}key=${k}&t=${Date.now()}`, { method: 'GET', redirect: 'follow', cache: 'no-store' }), 30000, 'Download');
+    const text = await r.text(); let remote;
+    try { remote = JSON.parse(text); } catch (e) { throw new Error('The Google script did not answer with data — check the sync link'); }
     if (remote.error) throw new Error(remote.error);
     const changed = mergeRemote(remote);
     persist();
-    await fetch(u, { method: 'POST', redirect: 'follow', body: JSON.stringify({ key: P.sync.key || '', data: { invoices: S.invoices, expenses: S.expenses, reminders: S.reminders, activity: S.activity.slice(0, 150), settings: S.settings, meta: S.meta, savedBy: P.user, savedAt: Date.now() } }) });
-    P.sync.last = Date.now(); savePrefs(); setSaved('ok');
+    const pr = await withTimeout(fetch(u, { method: 'POST', redirect: 'follow', body: JSON.stringify({ key: P.sync.key || '', data: { invoices: S.invoices, expenses: S.expenses, reminders: S.reminders, activity: S.activity.slice(0, 200), settings: S.settings, meta: S.meta, savedBy: P.user, savedAt: Date.now() } }) }), 60000, 'Upload');
+    let pj = {}; try { pj = JSON.parse(await pr.text()); } catch (e) { pj = { ok: true }; /* sheet/calendar mirror may answer with HTML even when data saved */ }
+    if (pj.error) throw new Error(pj.error);
+    P.sync.last = Date.now(); P.sync.lastError = ''; savePrefs(); setSaved('ok');
     if (changed) { render(); watchAlerts(); }
-    if (manual) toast({ kind: 'good', sym: '⟳', title: 'Team data synced', body: changed ? 'Pulled in your coworker\'s latest changes.' : 'Everything already matches.' });
+    if (manual) toast({ kind: 'good', sym: '⟳', title: 'Team data synced', body: changed ? 'Pulled in your team\'s latest changes.' : 'Everything already matches.' });
   } catch (e) {
-    setSaved('err');
-    if (manual) toast({ kind: 'bad', sym: '!', title: 'Sync failed', body: String(e.message || e).slice(0, 120) + ' — check the web-app URL and key.' });
+    P.sync.lastError = String(e.message || e).slice(0, 160); savePrefs(); setSaved('err');
+    if (manual) toast({ kind: 'bad', sym: '!', title: 'Sync failed', body: P.sync.lastError });
   } finally { _syncing = false; }
 }
 
@@ -967,52 +996,23 @@ async function uploadToDrive(file, name, folder) {
   const j = await resp.json(); if (!j.ok) throw new Error(j.error || 'Upload failed — redeploy the latest Apps Script'); return j.url;
 }
 
-/* ---------- demo data ---------- */
-function seedDemo() {
-  let s = 20261114; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
-  const pick = a => a[Math.floor(rnd() * a.length)];
-  const C = ['Harbor Point REO', 'Keystone Servicing', 'Northgate Asset Mgmt', 'Sunline Properties', 'Maple Ridge Holdings', 'Cedar & Main Realty'];
-  const SV = [['Trash-out', 1450, .66], ['Lawn & yard maintenance', 185, .52], ['Lock change / rekey', 165, .5], ['Winterization', 325, .58], ['Debris removal', 890, .63], ['Interior cleaning', 420, .57], ['Roof tarp & repair', 1250, .7], ['Property inspection', 95, .42], ['Pool securing', 540, .61]];
-  const ST = ['Oak St', 'Birchwood Dr', 'Lakeview Ave', 'Pine Ridge Rd', 'Juniper Ct', 'Hollow Creek Ln', 'Sycamore Way', 'Main St', 'Willow Bend'];
-  const VN = ['ProClean Crew', 'GreenEdge Lawn', 'Ace Lock & Key', 'Reliable Haul', 'TopShield Roofing', 'Metro Handyman'];
-  const T = today(), m0 = curMonth(); let n = 1040;
-  for (let back = 5; back >= 0; back--) {
-    const k = shiftMonth(m0, -back), dim = back === 0 ? +T.slice(8, 10) : daysInMonth(k), count = back === 0 ? 9 : 5 + Math.floor(rnd() * 4);
-    for (let j = 0; j < count; j++) {
-      const sv = pick(SV), amt = Math.round(sv[1] * (0.85 + rnd() * 0.4) / 5) * 5, cost = Math.round(amt * (sv[2] + (rnd() - .5) * .12) / 5) * 5;
-      const day = Math.max(1, Math.floor(rnd() * dim) + 1), d = `${k}-${pad(day)}`, age = daysBetween(d, T);
-      let approval = 'approved', paid = false;
-      if (age > 60) { paid = rnd() > .1; } else if (age > 30) { paid = rnd() > .25; } else if (age > 12) { paid = rnd() > .4; approval = rnd() > .15 ? 'approved' : 'pending'; } else { approval = rnd() > .5 ? 'approved' : 'pending'; paid = approval === 'approved' && rnd() > .7; }
-      if (rnd() < .05 && !paid && age < 30) approval = 'rejected';
-      const inv = touch({ id: uid(), no: 'INV-' + (++n), client: pick(C), property: `${100 + Math.floor(rnd() * 8800)} ${pick(ST)}`, service: sv[0], system: pick(SYSTEMS.slice(0, 9)),
-        inputDate: d, amount: amt, vendor: pick(VN), vendorCost: cost, approval, approvalDate: approval === 'approved' ? addDays(d, 1 + Math.floor(rnd() * 4)) : '', paid,
-        paidDate: '', copyUrl: (rnd() > .25 || age > 20) ? 'https://drive.google.com/' : '', enteredBy: rnd() > .3 ? 'Yvonne' : 'Eric', comms: [], createdAt: Date.now() });
-      if (inv.approvalDate > T) inv.approvalDate = T;
-      inv.expectedDate = inv.approvalDate ? addDays(inv.approvalDate, 14) : '';
-      if (paid) { inv.paidDate = addDays(inv.approvalDate || d, 6 + Math.floor(rnd() * 14)); if (inv.paidDate > T) inv.paidDate = T; }
-      inv.vendorPaid = paid ? rnd() > .12 : (age > 10 && rnd() > .5);
-      inv.vendorPaidDate = inv.vendorPaid ? addDays(d, Math.min(age, 3 + Math.floor(rnd() * 10))) : '';
-      inv.payments = [];
-      if (paid) { const short = rnd() < .14 ? Math.round(amt * (.08 + rnd() * .12) / 5) * 5 : 0; inv.payments.push({ id: uid(), date: inv.paidDate, amount: amt - short, note: pick(['ACH deposit', 'Check deposit', 'Wire']), by: 'Eric' }); inv.shortAck = short ? rnd() > .5 : false; }
-      else if (approval === 'approved' && age > 8 && rnd() < .35) inv.payments.push({ id: uid(), date: addDays(d, Math.min(age, 7)), amount: Math.round(amt * .5 / 5) * 5, note: 'Partial — first draw', by: 'Eric' });
-      inv.comms.push({ id: uid(), date: d, note: `Logged in ${inv.system}`, by: inv.enteredBy, sys: true, at: Date.now() });
-      if (rnd() > .35) inv.comms.push({ id: uid(), date: addDays(d, Math.min(age, 2 + Math.floor(rnd() * 6))), note: pick(['Emailed asset manager for approval', 'Seller asked for before/after photos — sent', 'Called servicer, invoice in review', 'Uploaded bid & photos to portal']), by: pick(['Yvonne', 'Eric']), at: Date.now() });
-      if (!paid && age > 30) { inv.vendorPaid = true; inv.vendorPaidDate = addDays(d, 5); inv.comms.push({ id: uid(), date: addDays(T, -2), note: 'Escalated to asset manager — check promised next week', by: 'Eric', at: Date.now() }); }
-      S.invoices.push(inv);
-      if (inv.approval === 'pending') S.reminders.push(touch({ id: uid(), date: addDays(d, 5), time: '09:00', title: `Check seller approval · ${inv.client}`, note: `${inv.no} · ${money(amt)}`, invoiceId: inv.id, auto: true, kind: 'approval', done: false }));
-      if (inv.approval === 'approved' && !paid) S.reminders.push(touch({ id: uid(), date: inv.expectedDate, time: '09:00', title: `Payment expected · ${inv.client}`, note: `${inv.no} · ${money(amt)}`, invoiceId: inv.id, auto: true, kind: 'payment', done: false }));
-    }
-    [['Software & subscriptions', 'Pruvan subscription', 129], ['Fuel & mileage', 'Shell', 180 + Math.round(rnd() * 120)], ['Supplies', 'Home Depot', 60 + Math.round(rnd() * 160)], ['Fees & bank charges', 'Wire & portal fees', 35]]
-      .forEach(([cat, payee, amt]) => S.expenses.push(touch({ id: uid(), date: `${k}-${pad(Math.min(dim, 3 + Math.floor(rnd() * 24)))}`, category: cat, payee, amount: amt, invoiceId: '', note: '', receiptUrl: '' })));
-  }
-  /* the $375 job from the brief */
-  const star = touch({ id: uid(), no: 'INV-' + (++n), client: 'Harbor Point REO', property: '2214 Lakeview Ave', service: 'Roof tarp & repair', system: 'LPS Billing', inputDate: addDays(T, -3), amount: 1250, vendor: 'TopShield Roofing', vendorCost: 875, vendorPaid: false, payments: [], approval: 'approved', approvalDate: addDays(T, -1), expectedDate: addDays(T, 13), paid: false, paidDate: '', copyUrl: '', enteredBy: 'Yvonne', comms: [{ id: uid(), date: addDays(T, -3), note: 'Logged in LPS Billing', by: 'Yvonne', sys: true, at: Date.now() }, { id: uid(), date: addDays(T, -1), note: 'Asset manager approved via email', by: 'Yvonne', at: Date.now() }], createdAt: Date.now() });
-  S.invoices.push(star);
-  S.reminders.push(touch({ id: uid(), date: addDays(T, 2), time: '10:30', title: 'Send November vendor payouts', note: 'Batch pay GreenEdge + ProClean', auto: false, kind: 'custom', done: false }));
-  S.reminders.push(touch({ id: uid(), date: addDays(T, 6), time: '14:00', title: 'Month-end review with Eric', note: 'Walk through profit by client', auto: false, kind: 'custom', done: false }));
-  const acts = [['logged ' + star.no + ' for Harbor Point REO — $1,250.00', 'logged', 'Yvonne'], ['marked ' + star.no + ' approved by seller', 'approved', 'Yvonne'], ['confirmed a payment · $412.50 profit', 'paid', 'Eric'], ['added a fuel expense', 'expense', 'Eric']];
-  acts.forEach(([t, k, w], i) => S.activity.push(touch({ id: uid(), at: Date.now() - (i + 1) * 3.6e6 * (i + 1), who: w, text: t, kind: k })));
-  S.meta.demo = true;
+/* ---------- sample-data purge ----------
+   Older versions of the tracker shipped sample invoices. Any browser that still holds them
+   would push them back into the shared data, so every copy now deletes them on sight
+   (as synced deletions, so the removal spreads to everyone). */
+const SAMPLE_CLIENTS = new Set(['Harbor Point REO', 'Keystone Servicing', 'Northgate Asset Mgmt', 'Sunline Properties', 'Maple Ridge Holdings', 'Cedar & Main Realty']);
+const SAMPLE_REMINDERS = new Set(['Send November vendor payouts', 'Month-end review with Eric']);
+const SAMPLE_CUTOFF = Date.parse('2026-11-17T12:00:00Z');
+const SAMPLE_EXPENSES = { 'Pruvan subscription': 'Software & subscriptions', 'Shell': 'Fuel & mileage', 'Home Depot': 'Supplies', 'Wire & portal fees': 'Fees & bank charges' };
+function purgeSample() {
+  const now = Date.now(), kill = o => { o._del = true; o.updatedAt = now; n++; }; let n = 0;
+  const dead = new Set();
+  S.invoices.forEach(i => { if (SAMPLE_CLIENTS.has(i.client)) { dead.add(i.id); if (!i._del) kill(i); } });
+  S.reminders.forEach(r => { if (!r._del && (dead.has(r.invoiceId) || SAMPLE_REMINDERS.has(r.title))) kill(r); });
+  S.activity.forEach(a => { if (!a._del && (dead.has(a.invoiceId) || [...SAMPLE_CLIENTS].some(c => (a.text || '').includes(c)) || /\bINV-1\d{3}\b/.test(a.text || ''))) kill(a); });
+  /* expenses: exact sample payee + category, untouched, and created before this fix shipped */
+  S.expenses.forEach(e => { if (!e._del && SAMPLE_EXPENSES[e.payee] === e.category && !e.invoiceId && !e.note && !e.receiptUrl && (e.updatedAt || 0) < SAMPLE_CUTOFF) kill(e); });
+  return n;
 }
 
 /* ---------- WebGL shader background ---------- */
@@ -1109,7 +1109,6 @@ function renderTop() {
   const al = computeAlerts();
   $('#top').innerHTML = `
     <button class="search" data-act="cmd">${ic('search')}<span>Search invoices, clients, actions…</span><kbd>Ctrl K</kbd></button>
-    ${S.meta.demo ? `<div class="demo-pill">✦ Sample data <button data-act="clearDemo">Start fresh</button></div>` : ''}
     <div class="top-sp"></div>
     <span class="savepill" id="savePill"><i></i><span>${P.sync.url ? 'Synced' : 'Saved'}</span></span>
     <button class="iconbtn" data-act="mode" data-tip="${P.mode === 'night' ? 'Light mode' : 'Night mode'}">${ic(P.mode === 'night' ? 'sun' : 'moon')}</button>
@@ -1186,6 +1185,7 @@ function alertCard(a, compact) {
     vendorPaid: a.inv && `<button class="btn xs" data-act="toggleVendor" data-id="${a.inv.id}">${ic('swap')}Vendor paid</button>`,
     ackShort: a.inv && `<button class="btn xs" data-act="ackShort" data-id="${a.inv.id}">${ic('check')}Accept short-pay</button>`,
     comm: a.inv && `<button class="btn xs" data-act="logComm" data-id="${a.inv.id}">${ic('chat')}Log contact</button>`,
+    fillVc: `<button class="btn xs" data-act="invFilter" data-f="novc">${ic('edit')}Fill in vendor costs</button>`,
     edit: a.inv && `<button class="btn xs" data-act="editInv" data-id="${a.inv.id}">${ic('edit')}Fix</button>`,
     done: a.rem && `<button class="btn xs" data-act="remDone" data-id="${a.rem.id}">${ic('check')}Done</button>`,
     snoozeRem: a.rem && `<button class="btn xs" data-act="snoozeRem" data-id="${a.rem.id}">${ic('clock')}Tomorrow</button>`,
@@ -1325,9 +1325,10 @@ function filteredInvoices() {
   let list = live(S.invoices);
   if (P.invMonth !== 'all') list = list.filter(i => mKey(i.inputDate) === P.invMonth);
   if (P.invSystem !== 'all') list = list.filter(i => i.system === P.invSystem);
-  const counts = { all: list.length, pending: 0, approved: 0, partial: 0, paid: 0, rejected: 0, attention: 0, vendor: 0 };
-  list.forEach(i => { counts[stage(i)]++; if (attn.has(i.id)) counts.attention++; if (vendorOwed(i) > 0) counts.vendor++; });
-  if (P.invFilter === 'attention') list = list.filter(i => attn.has(i.id)); else if (P.invFilter === 'vendor') list = list.filter(i => vendorOwed(i) > 0); else if (P.invFilter !== 'all') list = list.filter(i => stage(i) === P.invFilter);
+  const counts = { all: list.length, pending: 0, approved: 0, partial: 0, paid: 0, rejected: 0, attention: 0, vendor: 0, novc: 0 };
+  const noVc = i => !num(i.vendorCost) && i.approval !== 'rejected';
+  list.forEach(i => { counts[stage(i)]++; if (attn.has(i.id)) counts.attention++; if (vendorOwed(i) > 0) counts.vendor++; if (noVc(i)) counts.novc++; });
+  if (P.invFilter === 'attention') list = list.filter(i => attn.has(i.id)); else if (P.invFilter === 'vendor') list = list.filter(i => vendorOwed(i) > 0); else if (P.invFilter === 'novc') list = list.filter(noVc); else if (P.invFilter !== 'all') list = list.filter(i => stage(i) === P.invFilter);
   if (invQ) { const q = invQ.toLowerCase(); list = list.filter(i => [i.client, i.no, i.service, i.system, i.property, i.vendor].join(' ').toLowerCase().includes(q)); }
   const { k, d } = P.invSort;
   const val = i => k === 'profit' ? profit(i) : k === 'amount' || k === 'vendorCost' ? num(i[k]) : k === 'lastComm' ? lastComm(i) : k === 'stage' ? stage(i) : String(i[k] || '').toLowerCase();
@@ -1337,7 +1338,7 @@ function filteredInvoices() {
 function pgInvoices() {
   const { list, counts, attn } = filteredInvoices();
   const th = (key, label, cls = '') => `<th class="${cls}" data-act="sort" data-k="${key}">${label} ${P.invSort.k === key ? `<span class="ar">${P.invSort.d > 0 ? '↑' : '↓'}</span>` : ''}</th>`;
-  const F = [['all', 'All', ''], ['pending', 'Awaiting seller', 's-warn'], ['approved', 'Approved', 's-info'], ['partial', 'Part-paid', 's-info'], ['paid', 'Paid', 's-good'], ['rejected', 'Rejected', 's-bad'], ['vendor', 'Vendor owed', 's-warn'], ['attention', 'Needs attention', 's-bad']];
+  const F = [['all', 'All', ''], ['pending', 'Awaiting seller', 's-warn'], ['approved', 'Approved', 's-info'], ['partial', 'Part-paid', 's-info'], ['paid', 'Paid', 's-good'], ['rejected', 'Rejected', 's-bad'], ['vendor', 'Vendor owed', 's-warn'], ['novc', 'No vendor cost', 's-warn'], ['attention', 'Needs attention', 's-bad']];
   const tot = { a: sum(list, i => num(i.amount)), v: sum(list, i => num(i.vendorCost)), p: sum(list, profit) };
   return `
   <div class="page-head"><div class="grow"><span class="kicker">Invoices</span><h1 class="h1">Every bill, <em>one place</em></h1>
@@ -1362,7 +1363,7 @@ function pgInvoices() {
         <td><span class="client">${attn.has(i.id) ? '<span style="color:var(--warn)" data-tip="Needs attention">◆ </span>' : ''}${esc(i.client)}</span><span class="addr">${esc(i.property || '')}</span></td>
         <td><div style="max-width:190px;overflow:hidden;text-overflow:ellipsis">${esc(i.service)}</div><span class="chip sys" style="margin-top:4px;font-size:10.5px;padding:2px 8px">${esc(i.system || '—')}</span></td>
         <td class="r num">${money(num(i.amount))}</td>
-        <td class="r num faint">${money(num(i.vendorCost))}</td>
+        <td class="r"><label class="vc ${num(i.vendorCost) ? '' : 'empty'}" data-tip="${num(i.vendorCost) ? 'Click to change what was paid to the vendor' : 'Type what was paid to the vendor'}"><b>$</b><input class="vc-in" id="vc-${i.id}" data-vc="${i.id}" inputmode="decimal" value="${num(i.vendorCost) ? num(i.vendorCost).toFixed(2) : ''}" placeholder="add cost" aria-label="Vendor cost for ${esc(i.no)}"></label></td>
         <td class="r num ${p < 0 ? 'neg' : 'pos'}">${money(p)}<div class="faint mono" style="font-size:10px">${margin(i).toFixed(0)}%</div></td>
         <td><button class="chip ${STAGE[i.approval === 'approved' ? 'paid' : i.approval === 'rejected' ? 'rejected' : 'pending'][1]}" data-act="cycleAppr" data-id="${i.id}" data-tip="Click to change"><i class="d"></i>${{ pending: 'Pending', approved: 'Approved', rejected: 'Rejected' }[i.approval || 'pending']}</button></td>
         <td><div class="row" style="gap:8px;flex-wrap:nowrap"><button class="sw ${i.paid ? 'on' : ''}" data-act="togglePaid" data-id="${i.id}" aria-label="Payment received"></button><span class="faint" style="font-size:11.5px">${i.paid ? (shortPay(i) ? `<span class="neg">short ${money(shortPay(i), 0)}</span>` : fmtDate(i.paidDate)) : st === 'partial' ? `<button class="chip part" data-act="payModal" data-id="${i.id}" data-tip="${money(balance(i))} still due">${money(received(i), 0)} rec'd</button>` : st === 'approved' ? 'due ' + fmtDate(expected(i)) : ''}</span></div></td>
@@ -1608,7 +1609,8 @@ function pgSettings() {
     </div>
     <div class="card"><div class="card-head"><h3>Lists</h3></div>
       <div class="field"><span>Invoicing systems</span>${tags(st.systems, 'systems')}</div>
-      <div class="field mt"><span>Types of service</span>${tags(st.services, 'services')}</div>
+      <div class="field mt"><span>Servicers (clients)</span>${tags(st.clients, 'clients')}</div>
+      <div class="field mt"><span>Service categories · from LPS</span><div class="tags">${Object.entries(CATEGORIES).map(([c, s]) => `<span class="tag" style="padding-right:11px">${esc(c)}${s.length ? ` <span class="faint">· ${s.length}</span>` : ''}</span>`).join('')}</div></div>
       <div class="field mt"><span>Expense categories</span>${tags(st.cats, 'cats')}</div>
     </div>
   </div>
@@ -1618,13 +1620,14 @@ function pgSettings() {
       <div class="fgrid"><label class="field full"><span>Web app URL</span><input data-pref="sync.url" value="${esc(P.sync.url)}" placeholder="https://script.google.com/macros/s/…/exec"></label>
         <label class="field"><span>Shared key</span><input data-pref="sync.key" value="${esc(P.sync.key)}" placeholder="same as SECRET in the script" type="password"></label>
         <div class="field"><span>Auto-sync</span><div class="row">${sw(P.sync.auto, 'prefSw', 'data-p="sync.auto"')}<span class="faint" style="font-size:12px">on every change + every 90s</span></div></div></div>
-      <div class="row mt"><button class="btn primary" data-act="syncNow">${ic('sync')}Sync now</button><button class="btn" data-act="scriptModal">${ic('key')}Get the setup script</button></div>
+      ${P.sync.lastError ? `<div class="alert-item" style="margin-top:12px"><div class="ai-ic bad">!</div><div><div class="t">Last sync problem</div><div class="b">${esc(P.sync.lastError)}</div></div></div>` : ''}
+      <div class="row mt"><button class="btn primary" data-act="syncNow">${ic('sync')}Sync now</button>${P.sync.url ? `<button class="btn warm" data-act="copyInvite">${ic('link')}Copy team invite link</button>` : ''}<button class="btn" data-act="scriptModal">${ic('key')}Setup script</button></div>
+      ${P.sync.url ? '<p class="faint" style="font-size:12px;margin:10px 0 0">Send the invite link privately. Opening it connects that person automatically — nothing to paste.</p>' : ''}
     </div>
     <div class="card"><div class="card-head"><h3>Your data</h3></div>
       <div class="set-row"><div class="txt"><b>Backup</b><small>Download everything as a JSON file</small></div><button class="btn sm" data-act="exportJSON">${ic('down')}Export</button></div>
       <div class="set-row"><div class="txt"><b>Restore</b><small>Load a backup — merges with what's here</small></div><button class="btn sm" data-act="importJSON">${ic('up')}Import</button></div>
       <div class="set-row"><div class="txt"><b>Spreadsheet</b><small>All invoices as CSV for Excel / Sheets</small></div><button class="btn sm" data-act="csvAll">${ic('down')}CSV</button></div>
-      <div class="set-row"><div class="txt"><b>Sample data</b><small>${S.meta.demo ? 'Currently showing sample data' : 'Reload the demo to explore'}</small></div>${S.meta.demo ? `<button class="btn sm warm" data-act="clearDemo">Start fresh</button>` : `<button class="btn sm" data-act="loadDemo">Load demo</button>`}</div>
       <div class="set-row"><div class="txt"><b>Erase everything</b><small>Removes all invoices, expenses and reminders on this device</small></div><button class="btn sm danger" data-act="eraseAll">${ic('trash')}Erase</button></div>
     </div>
   </div>
@@ -1703,7 +1706,7 @@ function renderDrawer() {
       ${inv.paid && !PS.length ? `<div class="rline"><span class="faint">✓ Received ${fmtDate(inv.paidDate)}</span><b class="mono pos">${money(num(inv.amount))}</b></div>` : ''}
       ${sp ? `<div class="rline"><span>− Short-pay ${inv.shortAck ? '<span class="chip">accepted</span>' : '<span class="chip warn">open</span>'}</span><b class="mono neg">${money(sp)}</b></div>` : ''}
       ${!inv.paid && PS.length ? `<div class="rline"><span><b>Balance still due</b></span><b class="mono">${money(bal)}</b></div>` : ''}
-      <div class="rline"><span>− Vendor cost <span class="faint">${esc(inv.vendor || '')}</span> ${num(inv.vendorCost) ? `<span class="chip ${inv.vendorPaid ? 'good' : 'warn'}" style="font-size:10px">${inv.vendorPaid ? 'paid' : 'owed'}</span>` : ''}</span><b class="mono">${money(num(inv.vendorCost))}</b></div>
+      <div class="rline"><span>− Vendor cost <span class="faint">${esc(inv.vendor || '')}</span> ${num(inv.vendorCost) ? `<span class="chip ${inv.vendorPaid ? 'good' : 'warn'}" style="font-size:10px">${inv.vendorPaid ? 'paid' : 'owed'}</span>` : ''}</span><label class="vc ${num(inv.vendorCost) ? '' : 'empty'}"><b>$</b><input class="vc-in" id="dvc-${inv.id}" data-vc="${inv.id}" inputmode="decimal" value="${num(inv.vendorCost) ? num(inv.vendorCost).toFixed(2) : ''}" placeholder="add cost"></label></div>
       ${extras.map(e => `<div class="rline"><span>− ${esc(e.payee || e.category)}</span><b class="mono">${money(num(e.amount))}</b></div>`).join('')}
       <div class="rline tot"><span>Net profit <span class="chip ${p < 0 ? 'bad' : 'good'}">${margin(inv).toFixed(0)}%</span></span><b class="${p < 0 ? 'neg' : 'pos'}">${money(p)}</b></div></div></div>
     <div class="grid mt" style="gap:10px">
@@ -1782,16 +1785,19 @@ async function handleUpload(file, tgt) {
 /* ---------- invoice form ---------- */
 function invoiceModal(id) {
   const inv = id ? invById(id) : null, st = S.settings;
-  const v = inv || { no: nextInvNo(), inputDate: today(), system: st.systems[0], approval: 'pending', paid: false, enteredBy: P.user, client: '', service: '', amount: '', vendorCost: '', vendor: '', property: '', copyUrl: '', expectedDate: '' };
+  const v = inv || { no: '', inputDate: today(), system: st.systems[0], approval: 'pending', paid: false, enteredBy: P.user, client: '', service: '', category: '', subCategory: '', amount: '', vendorCost: '', vendor: '', property: '', copyUrl: '', expectedDate: '' };
+  const cat = v.category || (v.service && CATEGORIES[v.service] ? v.service : '') || 'Unassigned', subs = CATEGORIES[cat] || [];
+  const clientOpts = [...new Set([...st.clients, ...(v.client ? [v.client] : [])])];
   const dl = (id, arr) => `<datalist id="${id}">${arr.map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
   openModal(`${mHead(inv ? 'Edit invoice' : 'New invoice', inv ? esc(inv.no) + ' · ' + esc(inv.client) : 'Log a bill')}
   <form data-form="invoice" data-id="${id || ''}" autocomplete="off"><div class="inv-form"><div>
     <div class="fgrid">
-      <label class="field"><span>Client name</span><input name="client" list="dlC" required value="${esc(v.client)}" autofocus placeholder="Who is being billed"></label>
+      <label class="field"><span>Servicer (client)</span><select name="client" required autofocus><option value="">— Select —</option>${clientOpts.map(c => `<option ${v.client === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
       <label class="field"><span>Property / address</span><input name="property" value="${esc(v.property)}" placeholder="optional"></label>
       <label class="field"><span>Input date</span><input type="date" name="inputDate" value="${v.inputDate}" required></label>
-      <label class="field"><span>Invoice #</span><input name="no" value="${esc(v.no)}"></label>
-      <label class="field"><span>Type of service</span><input name="service" list="dlS" required value="${esc(v.service)}" placeholder="What the bill is for"></label>
+      <label class="field"><span>Invoice # (as in LPS)</span><input name="no" value="${esc(v.no)}" placeholder="e.g. 509 Susannah - $675"></label>
+      <label class="field"><span>Category</span><select name="category" data-cat>${Object.keys(CATEGORIES).map(c => `<option ${cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="field"><span>Sub-category</span><select name="subCategory" data-sub ${subs.length ? '' : 'disabled'}><option value="">${subs.length ? 'Unassigned' : '— none for this category —'}</option>${subs.map(s => `<option ${v.subCategory === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
       <label class="field"><span>Invoicing system used</span><select name="system">${st.systems.map(s => `<option ${v.system === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
       <label class="field"><span>Amount invoiced · revenue</span><div class="money-in"><b>$</b><input name="amount" inputmode="decimal" required value="${v.amount}" placeholder="0.00"></div></label>
       <label class="field"><span>Vendor cost · expense</span><div class="money-in"><b>$</b><input name="vendorCost" inputmode="decimal" value="${v.vendorCost}" placeholder="0.00"></div></label>
@@ -1819,7 +1825,7 @@ function invoiceModal(id) {
       </div></div>
       <div class="card sunk mt" style="padding:14px"><div class="mono faint" style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px">What happens next</div><div id="pvNext" style="font-size:12.5px;line-height:1.7"></div></div>
     </div></div>
-    ${dl('dlC', clients())}${dl('dlS', S.settings.services)}${dl('dlV', vendors())}
+    ${dl('dlV', vendors())}
     <div class="modal-foot">${inv ? `<button type="button" class="btn ghost" data-act="delInv" data-id="${inv.id}">${ic('trash')}Delete</button>` : ''}<span class="sp"></span><span class="faint mono" style="font-size:11px">Ctrl + Enter to save</span><button type="button" class="btn ghost" data-act="close">Cancel</button><button class="btn primary">${ic('check')}${inv ? 'Save changes' : 'Log invoice'}</button></div>
   </form>`, 'wide');
   updatePreview($('#overlay form'));
@@ -2057,10 +2063,13 @@ const ACT = {
   print: () => window.print(),
   exportJSON: () => download(`ekey-tracker-backup-${today()}.json`, JSON.stringify(S, null, 2), 'application/json'),
   importJSON: () => $('#importFile').click(),
-  clearDemo: () => confirmBox('Start fresh?', 'This removes the sample invoices, expenses and reminders so you can enter real ones. Your settings and colours stay.', 'Clear sample data', () => {
-    const keep = S.settings; S = defaults(); S.settings = keep; S.meta.demo = false; P.seenAlerts = []; P.notified = {}; _animate = true; commit(); toast({ kind: 'good', sym: '✦', title: 'Clean slate', body: 'Log your first real invoice with N.' }); }, false),
-  loadDemo: () => { const keep = S.settings; S = defaults(); S.settings = keep; seedDemo(); _animate = true; commit(); },
-  eraseAll: () => confirmBox('Erase everything?', 'All invoices, expenses, reminders and activity on this device will be deleted. Export a backup first if unsure.', 'Erase all', () => { const keep = S.settings; S = defaults(); S.settings = keep; _animate = true; commit(); toast({ kind: 'bad', title: 'Everything erased' }); }),
+  eraseAll: () => confirmBox('Erase everything for the whole team?', 'Every invoice, expense, reminder and activity entry is deleted — on this computer and, once synced, for everyone. Export a backup first if unsure.', 'Erase all', () => {
+    const now = Date.now(); [S.invoices, S.expenses, S.reminders, S.activity].forEach(list => list.forEach(o => { o._del = true; o.updatedAt = now; }));
+    P.seenAlerts = []; P.notified = {}; _animate = true; commit(); toast({ kind: 'bad', title: 'Everything erased', body: P.sync.url ? 'The deletion syncs to the whole team.' : '' }); }),
+  copyInvite: () => { const id = (P.sync.url.match(/\/s\/([^/]+)\/exec/) || [])[1]; if (!id) return toast({ kind: 'warn', title: 'No sync link set' });
+    const link = location.origin + location.pathname + '#sync=' + id;
+    navigator.clipboard.writeText(link).then(() => toast({ kind: 'good', sym: '✓', title: 'Invite link copied', body: 'Send it privately — opening it connects them to the team data.' }), () => openModal(`${mHead('Team invite link', 'Copy this')}<p class="muted">Send it privately to your coworker:</p><pre class="code" style="white-space:pre-wrap;word-break:break-all">${esc(link)}</pre>`, 'narrow')); },
+  pickUser: el => { P.user = el.dataset.u; savePrefs(); closeModal(); log('started logging', 'info'); commit({ quiet: true }); toast({ kind: 'good', sym: '◉', title: `Hi ${P.user}`, body: 'Everything you log is signed with your name.', ms: 3000 }); },
 };
 
 /* ---------- forms ---------- */
@@ -2081,10 +2090,10 @@ const FORMS = {
   },
   invoice: f => {
     const fd = Object.fromEntries(new FormData(f)), id = f.dataset.id;
-    if (!fd.client.trim() || !num(fd.amount)) return toast({ kind: 'warn', title: 'Client and amount are required' });
+    if (!fd.client.trim() || !num(fd.amount)) return toast({ kind: 'warn', title: 'Servicer and amount are required' });
     let inv = id ? invById(id) : null; const prev = inv ? clone(inv) : null;
     if (!inv) { inv = { id: uid(), comms: [], createdAt: Date.now() }; S.invoices.push(inv); }
-    Object.assign(inv, { client: fd.client.trim(), property: fd.property.trim(), inputDate: fd.inputDate, no: fd.no.trim() || nextInvNo(), service: fd.service.trim(), system: fd.system,
+    Object.assign(inv, { client: fd.client.trim(), property: fd.property.trim(), inputDate: fd.inputDate, no: fd.no.trim() || nextInvNo(), category: fd.category, subCategory: fd.subCategory || '', service: serviceLabel(fd.category, fd.subCategory), system: fd.system,
       amount: num(fd.amount), vendorCost: num(fd.vendorCost), vendor: fd.vendor.trim(), expectedDate: fd.expectedDate || (prev ? prev.expectedDate : ''), approval: fd.approval,
       copyUrl: fd.copyUrl.trim(), enteredBy: fd.enteredBy, vendorPaid: fd.vendorPaid === '1' });
     inv.vendorPaidDate = inv.vendorPaid ? (fd.vendorPaidDate || today()) : '';
@@ -2096,7 +2105,6 @@ const FORMS = {
     } else { inv.paid = false; inv.paidDate = ''; }
     if (inv.approval === 'approved' && !inv.approvalDate) inv.approvalDate = today();
     if (fd.commNote.trim()) (inv.comms = inv.comms || []).push({ id: uid(), date: fd.commDate || today(), note: fd.commNote.trim(), by: P.user, at: Date.now() });
-    if (fd.service.trim() && !S.settings.services.includes(fd.service.trim())) S.settings.services.push(fd.service.trim());
     if (prev) { automateInvoice(inv, prev); if (!(stage(prev) !== stage(inv))) log(`updated ${inv.no}`, 'comm', inv.id); } else automateInvoice(inv, null);
     touch(inv); _onClose = null; closeModal(); commit();
     const p = profit(inv);
@@ -2142,6 +2150,7 @@ document.addEventListener('click', e => {
   const cmd = e.target.closest('[data-cmd]'); if (cmd) return runCmd(+cmd.dataset.cmd);
   if (e.target.matches('[data-scrim]')) { closeModal(); return; }
   const dz = e.target.closest('[data-drop]'); if (dz) { if (!P.sync.url) return handleUpload({}, dz); return pickFile(dz); }
+  if (e.target.closest('.vc, .vc-in')) return;
   const el = e.target.closest('[data-act]');
   if ($('#pop') && !e.target.closest('#pop') && !(el && ['themePop', 'notifs'].includes(el.dataset.act))) closePop();
   if (!el) { if ($('#drawer') && !e.target.closest('#drawer,#overlay,.toast')) closeDrawer(); return; }
@@ -2155,6 +2164,15 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
+  if (t.dataset.vc) {   /* inline vendor cost — type it, press Enter or Tab, done */
+    const inv = invById(t.dataset.vc); if (!inv) return; const v = num(t.value), was = num(inv.vendorCost);
+    if (v === was) return;
+    inv.vendorCost = v; touch(inv); log(`set vendor cost on ${inv.no} to ${money(v)}`, 'expense', inv.id);
+    setTimeout(() => { commit(); toast({ kind: profit(inv) < 0 ? 'bad' : 'good', sym: '$', title: `Vendor cost saved · ${money(v)}`, body: `${inv.no} — profit now ${money(profit(inv))} (${margin(inv).toFixed(0)}%)`, ms: 3500 }); }, 0);
+    return;
+  }
+  if (t.matches('[data-cat]')) { const f = t.closest('form'), subs = CATEGORIES[t.value] || [], sel = f.subCategory;
+    sel.innerHTML = `<option value="">${subs.length ? 'Unassigned' : '— none for this category —'}</option>` + subs.map(s => `<option>${esc(s)}</option>`).join(''); sel.disabled = !subs.length; return; }
   if (t.dataset.pref) { const path = t.dataset.pref.split('.'); let o = P; while (path.length > 1) o = o[path.shift()]; o[path[0]] = t.value.trim(); savePrefs();
     if (t.dataset.pref === 'user') { log('started logging', 'info'); commit({ quiet: true }); toast({ kind: 'info', sym: '◉', title: `Hi ${P.user}`, body: 'New entries will be signed with your name.', ms: 3000 }); }
     else if (t.dataset.pref.startsWith('sync')) { if (P.sync.url && P.sync.key) syncNow(true); }
@@ -2166,6 +2184,7 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('keydown', e => {
   const t = e.target, typing = /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+  if (t.dataset && t.dataset.vc && e.key === 'Enter') { e.preventDefault(); const all = $$('.vc-in'), i = all.indexOf(t); t.blur(); if (all[i + 1]) all[i + 1].focus(); else t.dispatchEvent(new Event('change', { bubbles: true })); return; }
   if (t.dataset && t.dataset.tagadd !== undefined && e.key === 'Enter') { e.preventDefault(); const v = t.value.trim(); if (v) { const l = S.settings[t.dataset.tagadd]; if (!l.includes(v)) l.push(v); S.settings.updatedAt = Date.now(); t.value = ''; commit(); setTimeout(() => { const n = $(`[data-tagadd="${t.dataset.tagadd}"]`); if (n) n.focus(); }, 0); } return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openCmd(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { const f = $('#overlay form'); if (f) { e.preventDefault(); f.requestSubmit(); } return; }
@@ -2197,8 +2216,7 @@ document.addEventListener('pointermove', e => {
 $('#importFile').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   try { const data = JSON.parse(await f.text()); if (!data.invoices) throw new Error('Not a tracker backup file');
-    if (S.meta.demo) { const keep = S.settings; S = defaults(); S.settings = keep; }
-    mergeRemote(data); S.meta.demo = false; commit(); toast({ kind: 'good', sym: '↑', title: 'Backup restored', body: `${live(S.invoices).length} invoices on file` });
+    mergeRemote(data); commit(); toast({ kind: 'good', sym: '↑', title: 'Backup restored', body: `${live(S.invoices).length} invoices on file` });
   } catch (err) { toast({ kind: 'bad', title: 'Could not import', body: err.message }); }
   e.target.value = '';
 });
@@ -2206,11 +2224,21 @@ window.addEventListener('storage', e => { if (e.key === KEY) { load(); render();
 
 /* ---------- boot ---------- */
 load();
+function applyInvite() {
+  const m = location.hash.match(/^#sync=([\w-]+)/); if (!m) return false;
+  P.sync.url = `https://script.google.com/macros/s/${m[1]}/exec`; P.sync.key = ''; P.sync.auto = true; P.sync.lastError = ''; savePrefs();
+  history.replaceState(null, '', location.pathname); return true;
+}
+let _joined = applyInvite();
+addEventListener('hashchange', () => { if (applyInvite()) { toast({ kind: 'good', sym: '⟳', title: 'Connected to your team', body: 'Pulling the shared invoices now…', ms: 5000 }); render(); syncNow(); } });
 const h = location.hash.slice(1); if (NAV.some(n => n[0] === h)) P.page = h;
 if (P.month !== curMonth() && P.month < shiftMonth(curMonth(), -12)) P.month = curMonth();
 document.documentElement.dataset.theme = P.theme; document.documentElement.dataset.mode = P.mode;
 Shader.init(); applyTheme(); render();
 setTimeout(() => { watchAlerts(true); tickReminders(); }, 1400);
+if (_joined) toast({ kind: 'good', sym: '⟳', title: 'Connected to your team', body: 'Pulling the shared invoices now…', ms: 5000 });
+if (!P.user) setTimeout(() => openModal(`${mHead('Welcome', 'Who’s logging?')}<p class="muted" style="margin-top:0">Pick your name — everything you add is signed with it. You can switch any time at the bottom of the sidebar.</p>
+  <div class="row">${S.settings.team.map(t => `<button class="btn" data-act="pickUser" data-u="${esc(t)}"><span class="avatar" style="width:24px;height:24px;font-size:11px">${esc(t[0])}</span>${esc(t)}</button>`).join('')}</div>`, 'narrow'), 600);
 setInterval(tickReminders, 30000);
 setInterval(() => { renderSide(); renderTop(); }, 5 * 60000);
 setInterval(() => { if (P.sync.url && P.sync.auto && !document.hidden) syncNow(); }, 90000);
