@@ -693,12 +693,28 @@ const ic = (n, cls = '') => `<svg class="svg-ic ${cls}" viewBox="0 0 24 24" aria
 /* ---------- defaults ---------- */
 const SYSTEMS = ['LPS Billing', 'PennyMac Invoice System', 'Pruvan', 'Yardi', 'Equator', 'RESNET', 'Pyramid', 'VRM', 'Exceleras', 'Other'];
 /* Service categories exactly as in LPS (Category → Sub-Category) */
-const CATEGORIES = {
+const DEFAULT_CATEGORIES = {
   'Unassigned': [], 'Attorney': [], 'Cash for Keys': [], 'Cleaning': [], 'Eviction': [], 'HOA': [],
   'Inspections': ['HVAC Inspection', 'Mold Assessment', 'Pest Control Inspection', 'Plumbing Inspection', 'Roof Inspection', 'Routine Inspections', 'Septic Inspection', 'Special Inspections', 'Structural or Foundation Inspection'],
   'Other': [], 'Pool': [],
   'Property Preservation': ['DeWinterizing', 'Forced Place Insurance', 'Pest Treatment', 'Property Preservation Work', 'Snow Services', 'Winterizing'],
-  'Recording/Registration': [], 'Repairs': [], 'Securing': [], 'Taxes/Liens/Violations': [], 'Title': [], 'Trash Removal': [], 'Utilities': [], 'Valuation': [], 'Yard Care': [],
+  'Recording/Registration': [],
+  'REO Expenses': ['Appliance Replacement', 'Appliances', 'Auto Removal', 'Boarding - Garage Door', 'Carpentry', 'Carpet', 'Carpet Installation', 'Clean Gutters/Downspouts', 'Cleaning', 'Debris Removal', 'Dehumidifier', 'Demolition', 'Disaster Repair', 'Drive or Walkway Repair', 'Dry Winterization', 'Drywall', 'Drywall Installation/Repair', 'Electric / Electric Bill', 'Electrical'],
+  'Repairs': [], 'Securing': [], 'Taxes/Liens/Violations': [], 'Title': [], 'Trash Removal': [], 'Utilities': [], 'Valuation': [], 'Yard Care': [],
+};
+/* FIX (20 Nov 2026): categories used to be a hard-coded const, so they showed
+   read-only in Settings and REO Expenses could not be added at all.
+   They now live in S.settings.serviceCats (synced like the other lists),
+   seeded from DEFAULT_CATEGORIES above. getCategories() is the only
+   place the invoice form / Settings should read them from. */
+const getCategories = () => {
+  const stored = (typeof S !== 'undefined' && S && S.settings) ? S.settings.serviceCats : null;
+  return (stored && typeof stored === 'object' && Object.keys(stored).length) ? stored : DEFAULT_CATEGORIES;
+};
+const ensureServiceCats = () => {
+  if (!S.settings.serviceCats || typeof S.settings.serviceCats !== 'object' || !Object.keys(S.settings.serviceCats).length)
+    S.settings.serviceCats = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
+  return S.settings.serviceCats;
 };
 const serviceLabel = (cat, sub) => sub ? `${cat} · ${sub}` : (cat || 'Unassigned');
 /* Servicers (clients) exactly as in the LPS servicer list */
@@ -716,7 +732,7 @@ const defaults = () => ({
   invoices: [], expenses: [], reminders: [], activity: [],
   dismissed: {},
   settings: {
-    currency: 'USD', team: ['Eric', 'Yvonne'], systems: SYSTEMS.slice(), clients: SERVICERS.slice(), cats: CATS.slice(),
+    currency: 'USD', team: ['Eric', 'Yvonne'], systems: SYSTEMS.slice(), clients: SERVICERS.slice(), cats: CATS.slice(), serviceCats: JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),
     goalProfit: 6000, goalRevenue: 18000, driveFolder: '',
     rules: { approvalDays: 5, paymentDays: 14, commDays: 7, lowMargin: 20, vendorDays: 30, autoFollowup: true, missingCopy: true, negMargin: true, vendorAlerts: true, shortAlerts: true },
     updatedAt: 0,
@@ -742,6 +758,7 @@ function load() {
   ['invoices', 'expenses', 'reminders', 'activity'].forEach(k => S[k] = S[k] || []);
   S.dismissed = S.dismissed || {}; S.meta = S.meta || d.meta; delete S.meta.demo;
   if (!Array.isArray(S.settings.clients) || !S.settings.clients.length) S.settings.clients = SERVICERS.slice();
+  if (!S.settings.serviceCats || typeof S.settings.serviceCats !== 'object' || !Object.keys(S.settings.serviceCats).length) S.settings.serviceCats = JSON.parse(JSON.stringify(DEFAULT_CATEGORIES));
   purgeSample();
 }
 function savePrefs() { try { localStorage.setItem(PKEY, JSON.stringify(P)); } catch (e) {} }
@@ -1616,7 +1633,10 @@ function pgSettings() {
     <div class="card"><div class="card-head"><h3>Lists</h3></div>
       <div class="field"><span>Invoicing systems</span>${tags(st.systems, 'systems')}</div>
       <div class="field mt"><span>Servicers (clients)</span>${tags(st.clients, 'clients')}</div>
-      <div class="field mt"><span>Service categories · from LPS</span><div class="tags">${Object.entries(CATEGORIES).map(([c, s]) => `<span class="tag" style="padding-right:11px">${esc(c)}${s.length ? ` <span class="faint">· ${s.length}</span>` : ''}</span>`).join('')}</div></div>
+      <div class="field mt"><span>Service categories · from LPS — click × to remove, type + Enter to add a sub-category</span>
+        ${Object.entries(getCategories()).map(([c, s]) => `<div style="margin-top:10px"><div style="font-weight:700;font-size:13px">${esc(c)} <span class="faint" style="font-weight:400">· ${s.length} sub-categor${s.length === 1 ? 'y' : 'ies'}</span>${c !== 'Unassigned' ? ` <button class="btn xs ghost" data-act="catDel" data-cat="${esc(c)}" style="padding:2px 8px">Remove category</button>` : ''}</div><div class="tags" style="margin-top:6px">${s.map((sub, i) => `<span class="tag">${esc(sub)}<button data-act="subDel" data-cat="${esc(c)}" data-i="${i}" aria-label="Remove">×</button></span>`).join('')}<input class="inp select-sm" style="width:200px" placeholder="Add sub-category + Enter" data-subadd="${esc(c)}"></div></div>`).join('')}
+        <div style="margin-top:14px"><span style="font:500 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)">Add a new service category</span><div class="row" style="margin-top:6px"><input class="inp" style="max-width:260px" placeholder="e.g. REO Expenses" data-catadd><button class="btn sm" data-act="catAdd">Add category</button></div></div>
+      </div>
       <div class="field mt"><span>Expense categories</span>${tags(st.cats, 'cats')}</div>
     </div>
   </div>
@@ -1792,7 +1812,10 @@ async function handleUpload(file, tgt) {
 function invoiceModal(id) {
   const inv = id ? invById(id) : null, st = S.settings;
   const v = inv || { no: '', inputDate: today(), system: st.systems[0], approval: 'pending', paid: false, enteredBy: P.user, client: '', service: '', category: '', subCategory: '', amount: '', vendorCost: '', vendor: '', property: '', copyUrl: '', expectedDate: '' };
-  const cat = v.category || (v.service && CATEGORIES[v.service] ? v.service : '') || 'Unassigned', subs = CATEGORIES[cat] || [];
+  const cats = getCategories();
+  const cat = (v.category && cats[v.category]) ? v.category : (v.category || (v.service && cats[v.service] ? v.service : '') || 'Unassigned'), subs = cats[cat] || [];
+  const catOpts = [...new Set([...Object.keys(cats), ...(v.category ? [v.category] : [])])];
+  const subOpts = [...new Set([...subs, ...(v.subCategory ? [v.subCategory] : [])])];
   const clientOpts = [...new Set([...st.clients, ...(v.client ? [v.client] : [])])];
   const dl = (id, arr) => `<datalist id="${id}">${arr.map(x => `<option value="${esc(x)}">`).join('')}</datalist>`;
   openModal(`${mHead(inv ? 'Edit invoice' : 'New invoice', inv ? esc(inv.no) + ' · ' + esc(inv.client) : 'Log a bill')}
@@ -1802,8 +1825,8 @@ function invoiceModal(id) {
       <label class="field"><span>Property / address</span><input name="property" value="${esc(v.property)}" placeholder="optional"></label>
       <label class="field"><span>Input date</span><input type="date" name="inputDate" value="${v.inputDate}" required></label>
       <label class="field"><span>Invoice # (as in LPS)</span><input name="no" value="${esc(v.no)}" placeholder="e.g. 509 Susannah - $675"></label>
-      <label class="field"><span>Category</span><select name="category" data-cat>${Object.keys(CATEGORIES).map(c => `<option ${cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
-      <label class="field"><span>Sub-category</span><select name="subCategory" data-sub ${subs.length ? '' : 'disabled'}><option value="">${subs.length ? 'Unassigned' : '— none for this category —'}</option>${subs.map(s => `<option ${v.subCategory === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
+      <label class="field"><span>Category</span><select name="category" data-cat>${catOpts.map(c => `<option ${cat === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="field"><span>Sub-category</span><select name="subCategory" data-sub ${subOpts.length ? '' : 'disabled'}><option value="">${subOpts.length ? 'Unassigned' : '— none for this category —'}</option>${subOpts.map(s => `<option ${v.subCategory === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
       <label class="field"><span>Invoicing system used</span><select name="system">${st.systems.map(s => `<option ${v.system === s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></label>
       <label class="field"><span>Amount invoiced · revenue</span><div class="money-in"><b>$</b><input name="amount" inputmode="decimal" required value="${v.amount}" placeholder="0.00"></div></label>
       <label class="field"><span>Vendor cost · expense</span><div class="money-in"><b>$</b><input name="vendorCost" inputmode="decimal" value="${v.vendorCost}" placeholder="0.00"></div></label>
@@ -2057,6 +2080,9 @@ const ACT = {
     else toast({ kind: 'warn', title: 'Permission not granted', body: 'Allow notifications for this site in your browser settings.' });
   },
   tagDel: el => { const l = S.settings[el.dataset.list]; l.splice(+el.dataset.i, 1); S.settings.updatedAt = Date.now(); commit(); },
+  subDel: el => { const cats = ensureServiceCats(), l = cats[el.dataset.cat]; if (!l) return; l.splice(+el.dataset.i, 1); S.settings.updatedAt = Date.now(); commit(); },
+  catDel: el => { const name = el.dataset.cat; if (name === 'Unassigned') return toast({ kind: 'warn', title: 'Unassigned can’t be removed' }); const cats = ensureServiceCats(); delete cats[name]; S.settings.updatedAt = Date.now(); commit(); toast({ kind: 'good', sym: '✓', title: `Removed ${name}`, body: 'Invoices already logged with it keep their saved value.', ms: 3500 }); },
+  catAdd: () => { const inp = document.querySelector('[data-catadd]'); const v = (inp && inp.value || '').trim(); if (!v) return toast({ kind: 'warn', title: 'Type a category name first' }); const cats = ensureServiceCats(); if (cats[v]) return toast({ kind: 'warn', title: `${v} already exists` }); cats[v] = []; S.settings.updatedAt = Date.now(); commit(); toast({ kind: 'good', sym: '✓', title: `Added ${v}`, body: 'Now add its sub-categories underneath it.', ms: 3500 }); },
   syncNow: () => { if (!P.sync.url) return toast({ kind: 'warn', title: 'Add the web-app URL first', body: 'Settings → Team sync' }); syncNow(true); },
   scriptModal: () => scriptModal(),
   copyScript: () => { navigator.clipboard.writeText(APPS_SCRIPT).then(() => toast({ kind: 'good', sym: '✓', title: 'Script copied' }), () => toast({ kind: 'warn', title: 'Copy blocked — select the code instead' })); },
@@ -2177,7 +2203,7 @@ document.addEventListener('change', e => {
     setTimeout(() => { commit(); toast({ kind: profit(inv) < 0 ? 'bad' : 'good', sym: '$', title: `Vendor cost saved · ${money(v)}`, body: `${inv.no} — profit now ${money(profit(inv))} (${margin(inv).toFixed(0)}%)`, ms: 3500 }); }, 0);
     return;
   }
-  if (t.matches('[data-cat]')) { const f = t.closest('form'), subs = CATEGORIES[t.value] || [], sel = f.subCategory;
+  if (t.matches('[data-cat]')) { const f = t.closest('form'), subs = getCategories()[t.value] || [], sel = f.subCategory;
     sel.innerHTML = `<option value="">${subs.length ? 'Unassigned' : '— none for this category —'}</option>` + subs.map(s => `<option>${esc(s)}</option>`).join(''); sel.disabled = !subs.length; return; }
   if (t.dataset.pref) { const path = t.dataset.pref.split('.'); let o = P; while (path.length > 1) o = o[path.shift()]; o[path[0]] = t.value.trim(); savePrefs();
     if (t.dataset.pref === 'user') { log('started logging', 'info'); commit({ quiet: true }); toast({ kind: 'info', sym: '◉', title: `Hi ${P.user}`, body: 'New entries will be signed with your name.', ms: 3000 }); }
@@ -2192,6 +2218,8 @@ document.addEventListener('keydown', e => {
   const t = e.target, typing = /INPUT|TEXTAREA|SELECT/.test(t.tagName);
   if (t.dataset && t.dataset.vc && e.key === 'Enter') { e.preventDefault(); const all = $$('.vc-in'), i = all.indexOf(t); t.blur(); if (all[i + 1]) all[i + 1].focus(); else t.dispatchEvent(new Event('change', { bubbles: true })); return; }
   if (t.dataset && t.dataset.tagadd !== undefined && e.key === 'Enter') { e.preventDefault(); const v = t.value.trim(); if (v) { const l = S.settings[t.dataset.tagadd]; if (!l.includes(v)) l.push(v); S.settings.updatedAt = Date.now(); t.value = ''; commit(); setTimeout(() => { const n = $(`[data-tagadd="${t.dataset.tagadd}"]`); if (n) n.focus(); }, 0); } return; }
+  if (t.dataset && t.dataset.subadd !== undefined && e.key === 'Enter') { e.preventDefault(); const v = t.value.trim(), cat = t.dataset.subadd; if (v) { const cats = ensureServiceCats(), l = cats[cat]; if (l && !l.includes(v)) l.push(v); S.settings.updatedAt = Date.now(); t.value = ''; commit(); setTimeout(() => { const n = Array.from(document.querySelectorAll('[data-subadd]')).find(n => n.dataset.subadd === cat); if (n) n.focus(); }, 0); } return; }
+  if (t.dataset && t.dataset.catadd !== undefined && e.key === 'Enter') { e.preventDefault(); ACT.catAdd(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openCmd(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { const f = $('#overlay form'); if (f) { e.preventDefault(); f.requestSubmit(); } return; }
   if ($('#cmdIn') && t.id === 'cmdIn') {
